@@ -268,12 +268,22 @@ void amdgpu_fence_process(struct amdgpu_ring *ring)
  *
  * Checks for fence activity.
  */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 static void amdgpu_fence_fallback(unsigned long arg)
 {
 	struct amdgpu_ring *ring = (void *)arg;
 
 	amdgpu_fence_process(ring);
 }
+#else
+static void amdgpu_fence_fallback(struct timer_list *t)
+{
+	struct amdgpu_ring *ring = from_timer(ring, t,
+					      fence_drv.fallback_timer);
+
+	amdgpu_fence_process(ring);
+}
+#endif
 
 /**
  * amdgpu_fence_wait_empty - wait for all fences to signal
@@ -286,7 +296,11 @@ static void amdgpu_fence_fallback(unsigned long arg)
  */
 int amdgpu_fence_wait_empty(struct amdgpu_ring *ring)
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	uint64_t seq = READ_ONCE(ring->fence_drv.sync_seq);
+#else
 	uint64_t seq = ACCESS_ONCE(ring->fence_drv.sync_seq);
+#endif
 	struct dma_fence *fence, **ptr;
 	int r;
 
@@ -350,7 +364,11 @@ unsigned amdgpu_fence_count_emitted(struct amdgpu_ring *ring)
 	amdgpu_fence_process(ring);
 	emitted = 0x100000000ull;
 	emitted -= atomic_read(&ring->fence_drv.last_seq);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	emitted += READ_ONCE(ring->fence_drv.sync_seq);
+#else
 	emitted += ACCESS_ONCE(ring->fence_drv.sync_seq);
+#endif
 	return lower_32_bits(emitted);
 }
 
@@ -409,6 +427,7 @@ int amdgpu_fence_driver_start_ring(struct amdgpu_ring *ring,
 int amdgpu_fence_driver_init_ring(struct amdgpu_ring *ring,
 				  unsigned num_hw_submission)
 {
+	long timeout;
 	int r;
 
 	/* Check that num_hw_submission is a power of two */
@@ -421,8 +440,12 @@ int amdgpu_fence_driver_init_ring(struct amdgpu_ring *ring,
 	atomic_set(&ring->fence_drv.last_seq, 0);
 	ring->fence_drv.initialized = false;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 	setup_timer(&ring->fence_drv.fallback_timer, amdgpu_fence_fallback,
 		    (unsigned long)ring);
+#else
+	timer_setup(&ring->fence_drv.fallback_timer, amdgpu_fence_fallback, 0);
+#endif
 
 	ring->fence_drv.num_fences_mask = num_hw_submission * 2 - 1;
 	spin_lock_init(&ring->fence_drv.lock);
@@ -433,9 +456,16 @@ int amdgpu_fence_driver_init_ring(struct amdgpu_ring *ring,
 
 	/* No need to setup the GPU scheduler for KIQ ring */
 	if (ring->funcs->type != AMDGPU_RING_TYPE_KIQ) {
+		/* for non-sriov case, no timeout enforce on compute ring */
+		if ((ring->funcs->type == AMDGPU_RING_TYPE_COMPUTE)
+				&& !amdgpu_sriov_vf(ring->adev))
+			timeout = MAX_SCHEDULE_TIMEOUT;
+		else
+			timeout = msecs_to_jiffies(amdgpu_lockup_timeout);
+
 		r = drm_sched_init(&ring->sched, &amdgpu_sched_ops,
 				   num_hw_submission, amdgpu_job_hang_limit,
-				   msecs_to_jiffies(amdgpu_lockup_timeout), ring->name);
+				   timeout, ring->name);
 		if (r) {
 			DRM_ERROR("Failed to create scheduler on ring %s.\n",
 				  ring->name);

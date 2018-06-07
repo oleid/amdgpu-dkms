@@ -1439,6 +1439,9 @@ static void amdgpu_ssg_percpu_release(struct percpu_ref *ref)
 
 static int amdgpu_ssg_init(struct amdgpu_device *adev)
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
+	struct dev_pagemap page_map;
+#endif
 	struct resource res;
 	void *addr;
 	int rc;
@@ -1466,7 +1469,14 @@ static int amdgpu_ssg_init(struct amdgpu_device *adev)
 	if (rc)
 		return rc;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
+	page_map.ref = &adev->ssg.ref;
+	addr = devm_memremap_pages(adev->dev, &page_map);
+#else
 	addr = devm_memremap_pages(adev->dev, &res, &adev->ssg.ref, NULL);
+#endif
+
+
 	if (IS_ERR(addr)) {
 		percpu_ref_exit(&adev->ssg.ref);
 		return PTR_ERR(addr);

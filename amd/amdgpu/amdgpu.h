@@ -74,6 +74,8 @@
 #include "amdgpu_gart.h"
 #include "amdgpu_debugfs.h"
 
+#include "drm_compat.h"
+
 /*
  * Modules parameters.
  */

@@ -30,6 +30,7 @@ else ifeq ("amzn",$(OS_NAME))
 subdir-ccflags-y += -DOS_NAME_AMZ
 else
 subdir-ccflags-y += -DOS_NAME_UNKNOWN
+OS_VERSION = "0.0"
 endif
 
 subdir-ccflags-y += \

@@ -283,7 +283,7 @@ static inline int kcl_drm_universal_plane_init(struct drm_device *dev, struct dr
 			     enum drm_plane_type type,
 			     const char *name, ...)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0) || defined(OS_NAME_RHEL_7_5)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0) || defined(OS_NAME_RHEL_7_5)
 		return drm_universal_plane_init(dev, plane, possible_crtcs, funcs,
 				 formats, format_count, format_modifiers, type, name);
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0) || \
